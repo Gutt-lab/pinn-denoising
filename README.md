@@ -141,15 +141,8 @@ The script automatically populates the `./plotPINN/` directory with:
 2. **$g_2(\tau)$ Correlation Fits & Residuals (`g2_reference_residuals_*.png`, `*.pdf`):**
    - Extracted intensity autocorrelation curves $g_2(\tau)$ with error bars.
    - Residual curves ($\Delta g_2 = g_2 - g_{2,\mathrm{ref}}$) highlighting the precision gain of the denoising model.
-3. **Quantitative Metrics Table (`denoising_summary.csv`):**
-   - Summary printed directly to the terminal:
-   ```text
-   === Denoising Performance Summary ===
-    q_nm_inv  raw_scans  reference_scans  rmse_raw  rmse_denoised  rmse_reduction_percent
-       0.195        200             2800  0.002355       0.000577               75.50%
-       0.215        200             2800  0.001934       0.000330               82.95%
 
-   All plots and summary saved to: ./plotPINN/
+   All plots saved to: ./plotPINN/
    ```
 
 ---
@@ -264,23 +257,11 @@ SHOW_PLOTS = False
 
 ---
 
-## License & Citation
+## License
 
 This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
 
-### Citation
-If you use this repository or dataset in your research, please cite:
 
-```bibtex
-@article{GuttLabPINN2025,
-  author    = {Gutt Lab},
-  title     = {Physics-Informed Deep Learning for Two-Time Correlation Denoising in X-ray Photon Correlation Spectroscopy},
-  journal   = {Department of Physics, Universität Siegen},
-  year      = {2025}
-}
-```
-
----
 
 ## Contact & Inquiries
 

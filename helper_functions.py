@@ -1,6 +1,11 @@
 import matplotlib.pyplot as plt
 import sys
 import numpy as np
+# NumPy 2.0+ compatibility: np.trapz was renamed to np.trapezoid
+if not hasattr(np, 'trapz'):
+    np.trapz = getattr(np, 'trapezoid', None)
+if not hasattr(np, 'trapezoid'):
+    np.trapezoid = getattr(np, 'trapz', None)
 from scipy.optimize import nnls
 from scipy.stats import norm, linregress
 import matplotlib.pyplot as plt
@@ -1885,6 +1890,8 @@ def inverse_laplace_nnls_g2(
         
         # 5. HYDRODYNAMIC CALCULATIONS (Rh Space)
         mean_rh = np.nan
+        peak_rh_mode = np.nan
+        amp_max = np.nan
         rh_axis = np.array([])
         P_rh = np.array([])
         

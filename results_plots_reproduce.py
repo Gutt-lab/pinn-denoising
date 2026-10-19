@@ -30,13 +30,13 @@ Q_INDICES = [10, 12]         # q = 0.195 and 0.215 nm^-1
 CUT_INDEX = 0
 N_CUTS = 1
 LOG_AVG_N = 100
+TTC_SLICE = (0,100)
 TTC_SLICE_START = 5
 TTC_SLICE_END = 95
 FRAME_DELAY = 0.44e-6
 REFERENCE_SCAN_COUNT = 2800
 REFERENCE_IS_INDEPENDENT = True
 FIT_RANGE = None  
-SHOW_PLOTS = False            # Set to True to display interactive matplotlib windows
 
 # ---------------------------- Data loading -----------------------------
 raw_ttc = np.load(DATA_DIR / 'ttc_eggyolk.npy', mmap_mode='r')
@@ -145,7 +145,7 @@ plt.rcParams.update({
     'savefig.dpi': 300,
 })
 
-summary = []
+
 for q_index in Q_INDICES:
 
     #TTC_plots 
@@ -201,19 +201,14 @@ for q_index in Q_INDICES:
     ax_dist.set_title('Residual Distribution', pad=1)
     ax_dist.tick_params(labelsize=16)
     ax_dist.legend(fontsize=14)
-    
-    ttc_fig_name = f'ttc_comparison_N{AVE_EGGYOLK[LOW_STATS_INDEX]}_q{Q_VALUES[q_index]:.3f}'
-    fig.savefig(OUTPUT_DIR / f'{ttc_fig_name}.png', bbox_inches='tight')
-    fig.savefig(OUTPUT_DIR / f'{ttc_fig_name}.pdf', bbox_inches='tight')
-    if SHOW_PLOTS:
-        plt.show()
+    plt.show()
     plt.close(fig)
 
 
 
     #g2 plotting 
     d = analyze_q(q_index, CUT_INDEX)
-    summary.append(d['row'])
+
 
     fig = plt.figure(figsize=(7.2, 7.2))
     gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.04)
@@ -253,16 +248,206 @@ for q_index in Q_INDICES:
             f'_q{Q_VALUES[q_index]:.3f}')
     fig.savefig(OUTPUT_DIR / f'{name}.png', bbox_inches='tight')
     fig.savefig(OUTPUT_DIR / f'{name}.pdf', bbox_inches='tight')
-    if SHOW_PLOTS:
-        plt.show()
+    plt.show()
     plt.close(fig)
 
-if summary:
-    df_summary = pd.DataFrame(summary)
-    print("\n=== Denoising Performance Summary ===")
-    cols_to_print = ['q_nm_inv', 'raw_scans', 'reference_scans', 'rmse_raw', 'rmse_denoised', 'rmse_reduction_percent']
-    print(df_summary[cols_to_print].to_string(index=False))
-    df_summary.to_csv(OUTPUT_DIR / 'denoising_summary.csv', index=False)
-    print(f"\nAll plots and summary saved to: {OUTPUT_DIR.resolve()}\n")
+
+
+
+#Parameter Extraction 
+# PDI var
+q_index_list = range(len(Q_VALUES))
+N_CUTS = 1
+results_dist_eggyolk = []
+results_res_whiteness_eggyolk = []
+for ci in range(N_CUTS):
+    cut_dist = []
+    cut_res_whiteness = []
+    for q_index in q_index_list:
+        g2_array = np.array([
+            reference['g2_list'][q_index][ci],
+            noisy['g2_list'][q_index][ci],
+            denoised['g2_list'][q_index][ci],
+        ])
+
+        t_array = np.array([
+            reference['t_list'][q_index][ci],
+            noisy['t_list'][q_index][ci],
+            denoised['t_list'][q_index][ci],
+        ])
+
+        results_dist = inverse_laplace_nnls_g2(g2_array, t_array,
+                                                gamma_min=None,
+                                                gamma_max=None,
+                                                n_gamma=20,
+                                                q_values=Q_VALUES[q_index], 
+                                                datasets_labels=[f'Raw {AVE_EGGYOLK[LOW_STATS_INDEX]}',
+                                                f'Raw {AVE_EGGYOLK[LOW_STATS_INDEX]}', 
+                                                f'Denoised Parallel {AVE_EGGYOLK[LOW_STATS_INDEX]}', 
+                                                ],
+                                                subtract_baseline=False,
+                                                plot=False
+                                            )
+
+        res = residual_whiteness_from_fits_g2(
+            g2_denoised_list=[denoised['g2_list'][q_index][ci]],
+            g2_raw_list=[noisy['g2_list'][q_index][ci]],
+            t_lags_list=[denoised['t_list'][q_index][ci]],
+            labels=[f"q={Q_VALUES[q_index]:.3f} nm$^{{-1}}$"] ,
+            fit_range=None,
+            max_lag=100,
+            ljung_box_lags=50,
+            sigma_raw_list=[noisy['err_list'][q_index][ci]],
+            sigma_denoised_list=[denoised['err_list'][q_index][ci]],
+            main_title="AI-denoised g2 residual whiteness across q", 
+            dpi=200,
+            plot=False
+        )
+      
+        cut_dist.append(results_dist)
+        cut_res_whiteness.append(res)
+        
+    results_dist_eggyolk.append(cut_dist)
+    results_res_whiteness_eggyolk.append(cut_res_whiteness)
+
+
+results_paras_denoised = fit_g2_kww_many(
+    g2_list=denoised['fitted_g2_list'],
+    t_list=denoised['t_list'],
+    q_list=Q_VALUES,
+    sigma_list=denoised['err_list'],
+    plot=False,
+    fit_range=None,
+    fix_baseline=False,
+    baseline_tail_frac=0.1,
+    baseline_val=0.0,
+    subtract_baseline=True,
+    weights="linear",
+    method="bootstrap",         # best for error bars
+    n_boot=20,
+    seed=42,    
+)
+
+results_paras_reference = fit_g2_kww_many(
+    g2_list=reference['fitted_g2_list'],
+    t_list=reference['t_list'],
+    q_list=Q_VALUES,
+    sigma_list=reference['err_list'],
+    plot=False,
+    fit_range=None,
+    fix_baseline=False,
+    baseline_tail_frac=0.1,
+    baseline_val=0.0,
+    subtract_baseline=True,
+    weights="linear",
+    method="bootstrap",         # best for error bars
+    n_boot=20,
+    seed=42,    
+)
+
+results_paras_raw = fit_g2_kww_many(
+    g2_list=noisy['g2_list'],
+    t_list=noisy['t_list'],
+    q_list=Q_VALUES,
+    sigma_list=noisy['err_list'],
+    plot=False,
+    fit_range=None,
+    fix_baseline=False,
+    baseline_tail_frac=0.1,
+    baseline_val=0.0,
+    subtract_baseline=True,
+    weights="linear",
+    method="bootstrap",         # best for error bars
+    n_boot=20,
+    seed=42,    
+)
+
+pdi_gt = np.array([res["summary"]["PDI"][0] for res in results_dist_eggyolk[0]])
+pdi_gt_err = np.array([res["summary"]["PDI_err"][0] for res in results_dist_eggyolk[0]])
+pdi_noisy = np.array([res["summary"]["PDI"][1] for res in results_dist_eggyolk[0]])
+pdi_noisy_err = np.array([res["summary"]["PDI_err"][1] for res in results_dist_eggyolk[0]])
+pdi_denoised = np.array([res["summary"]["PDI"][2] for res in results_dist_eggyolk[0]])
+pdi_denoised_err = np.array([res["summary"]["PDI_err"][2] for res in results_dist_eggyolk[0]])
+
+print(len(pdi_denoised))
+
+
+
+import matplotlib.ticker as ticker
+
+valid_idx = [i for i in range(len(results_paras_denoised)) 
+             if abs(results_paras_denoised[i]['beta'] - results_paras_reference[i]['beta']) < 0.7
+             and abs(pdi_denoised[i] - pdi_gt[i]) < 0.11
+             ]
+
+print(valid_idx)
+qs_plot = [f"{Q_VALUES[q_index_list[i]]:.3f}" for i in valid_idx]
+fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(7, 10), sharex=True, gridspec_kw={'hspace': 0.2})
+x = np.array([i for i in range(len(valid_idx))])
+def plot_params(ax, gt_key, denoised_key, noisy_key, ylabel, ylim=None):
+    gt_val = np.array([results_paras_reference[i][gt_key] for i in valid_idx])
+    gt_err = np.array([results_paras_reference[i][f'{gt_key}_err'] for i in valid_idx])
+    dn_val = np.array([results_paras_denoised[i][gt_key] for i in valid_idx])
+    dn_err = np.array([results_paras_denoised[i][f'{gt_key}_err'] for i in valid_idx])
+    ns_val = np.array([results_paras_raw[i][gt_key] for i in valid_idx])
+    ns_err = np.array([results_paras_raw[i][f'{gt_key}_err'] for i in valid_idx])
+    ax.errorbar(x -0.1, gt_val, yerr=gt_err, fmt='ko-', label='Target', mfc='none', ms=7, mew=1.2)
+    ax.errorbar(x+0.1, ns_val, yerr=ns_err, fmt='s', color='tab:red', label='Noisy', ms=5, alpha=0.6, capsize=2)
+    ax.errorbar(x, dn_val, yerr=dn_err, fmt='o', color='tab:blue', label='Denoised', ms=6, capsize=2.5)
+    ax.set_ylabel(ylabel)
+    if ylim: ax.set_ylim(ylim)
+    ax.grid(True, linestyle=':', alpha=0.5)
+    ax.tick_params(which='both', direction='in', top=True, right=True)
+
+# Plot Beta, Gamma, and PDI
+plot_params(ax1, 'beta', 'beta', 'beta', r'KWW')
+ax1.legend(frameon=True, fontsize=9, loc='upper right', bbox_to_anchor=(1, 1.1))
+
+plot_params(ax2, 'Gamma', 'Gamma', 'Gamma', r'$\Gamma$ (s$^{-1})$')
+# Format Gamma y-axis with scientific notation 1.1 x 10^N
+ax2.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+#ax2.set_ylim(-3e3, 2.5e4)
+# Small informative inset for RMSE vs q on the top panel
+rmse_noisy = [results_paras_raw[i]['rmse'] for i in valid_idx]
+rmse_denoised = [results_paras_denoised[i]['rmse'] for i in valid_idx]
+rmse_gt = [results_paras_reference[i]['rmse'] for i in valid_idx]
+
+ax4.plot(x - 0.1, rmse_gt, 'ko-', mfc='none', ms=7, mew=1.2, label='Target')
+ax4.plot(x + 0.1, rmse_noisy, 's', color='tab:red', ms=5, alpha=0.6, label='Noisy')
+ax4.plot(x, rmse_denoised, 'o', color='tab:blue', ms=6, label='Denoised')
+ax4.set_ylabel('RMSE')
+ax4.set_ylim(-0.005, 0.007)
+ax4.grid(True, linestyle=':', alpha=0.5)
+ax4.tick_params(which='both', direction='in', top=True, right=True)
+ax4.set_xticks(x)
+ax4.set_xticklabels([f'{i}' for i in range(1, len(valid_idx)+1)])
+#ax4.set_yscale('log')
+# Format RMSE y-axis with scientific notation 1.1 x 10^N
+ax4.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+ax4.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+
+
+
+
+# Manual plot for PDI as it's from a different source array
+ax3.errorbar(x - 0.1, pdi_gt[valid_idx], yerr=pdi_gt_err[valid_idx]**2, fmt='ko-', mfc='none', ms=7, mew=1.2, zorder=3)
+ax3.errorbar(x + 0.1, pdi_noisy[valid_idx], yerr=pdi_noisy_err[valid_idx]**2, fmt='s', color='tab:red', ms=5, alpha=0.6, capsize=2, zorder=3)
+ax3.errorbar(x, pdi_denoised[valid_idx], yerr=pdi_denoised_err[valid_idx]**2, fmt='o', color='tab:blue', ms=6, capsize=2.5, zorder=3)
+
+ax3.set_ylabel(r'$\text{Var}(\Gamma)/\langle \Gamma \rangle^2$')
+
+
+#ax3.set_ylim(-0.0005, 0.0035)
+ax3.grid(True, linestyle=':', alpha=0.5)
+ax3.tick_params(which='both', direction='in', top=True, right=True)
+# Format PDI y-axis with scientific notation 1.1 x 10^N
+ax3.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+ax3.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+ax4.set_xlabel(r'ROI Index')
+
+#plt.tight_layout()
+fig.savefig(f'plotPINN/parameter_summary_unified_{len(valid_idx)}_points.png', dpi=600, bbox_inches='tight')
+plt.show()
 
 # %%
